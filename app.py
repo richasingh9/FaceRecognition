@@ -26,58 +26,37 @@ def load_model():
 model = load_model()
 
 # Start Camera
-run = st.checkbox("Start Camera")
+from PIL import Image
 
-FRAME_WINDOW = st.image([])
-col1, col2 = st.columns(2)
+st.subheader("📂 Upload Image for Detection")
 
-fps_display = col1.empty()
-face_count_display = col2.empty()
+uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "png", "jpeg"])
 
-if run:
-    cap = cv2.VideoCapture(0)
-    prev_time = 0
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    img = np.array(image)
 
-    while run:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Camera not working")
-            break
+    img_tensor = torchvision.transforms.functional.to_tensor(img)
+    img_tensor = img_tensor.unsqueeze(0)
 
-        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img_tensor = torchvision.transforms.functional.to_tensor(img).to(device)
-        img_tensor = img_tensor.unsqueeze(0)
+    start_time = time.time()
 
-        start_time = time.time()
+    with torch.no_grad():
+        outputs = model(img_tensor)
 
-        with torch.no_grad():
-            outputs = model(img_tensor)
+    end_time = time.time()
+    inference_time = end_time - start_time
 
-        end_time = time.time()
-        inference_time = end_time - start_time
+    boxes = outputs[0]['boxes'].numpy()
+    scores = outputs[0]['scores'].numpy()
 
-        boxes = outputs[0]['boxes'].cpu().numpy()
-        scores = outputs[0]['scores'].cpu().numpy()
+    face_count = 0
 
-        face_count = 0
+    for box, score in zip(boxes, scores):
+        if score > 0.7:
+            face_count += 1
+            x1, y1, x2, y2 = box.astype(int)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        for box, score in zip(boxes, scores):
-            if score > 0.7:
-                face_count += 1
-                x1, y1, x2, y2 = box.astype(int)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-        # FPS Calculation
-        current_time = time.time()
-        fps = 1 / (current_time - prev_time)
-        prev_time = current_time
-
-        cv2.putText(frame, f"FPS: {int(fps)}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-
-        FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-        fps_display.metric("FPS", int(fps))
-        face_count_display.metric("Detected Faces", face_count)
-
-    cap.release()
+    st.image(img, caption=f"Detected Objects: {face_count}")
+    st.write(f"Inference Time: {inference_time:.3f} seconds")
