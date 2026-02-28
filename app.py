@@ -1,50 +1,58 @@
-run = st.checkbox("Start Camera")
+import cv2
+import torch
+import torchvision
+import time
+import numpy as np
 
-FRAME_WINDOW = st.image([])
-col1, col2 = st.columns(2)
+# Check Device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using Device:", device)
 
-fps_display = col1.empty()
-face_count_display = col2.empty()
+# Load Pretrained Face Detection Model
+model = torchvision.models.detection.ssd300_vgg16(pretrained=True)
+model = model.to(device)
+model.eval()
 
-if run:
-    cap = cv2.VideoCapture(0)
-    
-    if not cap.isOpened():
-        st.error("Camera not accessible")
-    else:
-        ret, frame = cap.read()
-        if ret:
-            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img_tensor = torchvision.transforms.functional.to_tensor(img).to(device)
-            img_tensor = img_tensor.unsqueeze(0)
+# Open Webcam
+cap = cv2.VideoCapture(0)
 
-            start_time = time.time()
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-            with torch.no_grad():
-                outputs = model(img_tensor)
+    # Convert image to RGB
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img_tensor = torchvision.transforms.functional.to_tensor(img).to(device)
+    img_tensor = img_tensor.unsqueeze(0)
 
-            end_time = time.time()
-            inference_time = end_time - start_time
+    # Inference Timing
+    start_time = time.time()
 
-            boxes = outputs[0]['boxes'].cpu().numpy()
-            scores = outputs[0]['scores'].cpu().numpy()
+    with torch.no_grad():
+        outputs = model(img_tensor)
 
-            face_count = 0
+    end_time = time.time()
+    inference_time = end_time - start_time
 
-            for box, score in zip(boxes, scores):
-                if score > 0.7:
-                    face_count += 1
-                    x1, y1, x2, y2 = box.astype(int)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    # Process Detections
+    boxes = outputs[0]['boxes'].cpu().numpy()
+    scores = outputs[0]['scores'].cpu().numpy()
 
-            fps = 1 / inference_time if inference_time > 0 else 0
+    for box, score in zip(boxes, scores):
+        if score > 0.7:
+            x1, y1, x2, y2 = box.astype(int)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            cv2.putText(frame, f"FPS: {int(fps)}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+    # Show Inference Time
+    cv2.putText(frame, f"Inference Time: {inference_time:.3f}s",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                0.7, (0, 0, 255), 2)
 
-            FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    cv2.imshow("Real-Time Face Detection", frame)
 
-            fps_display.metric("FPS", int(fps))
-            face_count_display.metric("Detected Faces", face_count)
+    if cv2.waitKey(1) & 0xFF == 27:
+        break
 
-        cap.release()
+cap.release()
+cv2.destroyAllWindows()
